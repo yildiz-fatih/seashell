@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 typedef struct {
@@ -16,6 +17,7 @@ char *read_line();
 char **tokenize_line(char *line);
 void free_tokens(char **tokens);
 char *find_executable(char *program_name);
+void run_external(char **args);
 
 Builtin builtins[] = {
     {"exit", handle_exit},
@@ -49,7 +51,7 @@ int main(void) {
     }
 
     if (!is_builtin) {
-      printf("%s: command not found\n", tokens[0]);
+      run_external(tokens);
     }
 
     free_tokens(tokens);
@@ -230,4 +232,33 @@ char *find_executable(char *program_name) {
   free(path_copy);
 
   return NULL;
+}
+
+void run_external(char **args) {
+  char *program_name = args[0];
+  if (program_name == NULL) {
+    return;
+  }
+
+  char *exec_path = find_executable(program_name);
+  if (exec_path == NULL) {
+    printf("%s: not found\n", program_name);
+    return;
+  }
+
+  pid_t pid = fork();
+  if (pid < 0) { // fork failed
+    printf("An error has occurred\n");
+    free(exec_path);
+    return;
+  }
+
+  if (pid == 0) { // child process
+    execv(exec_path, args);
+    exit(1);
+  }
+
+  // parent process
+  free(exec_path);
+  wait(NULL);
 }
