@@ -41,7 +41,7 @@ int main(void) {
 }
 
 void handle_echo(char **args) {
-  for (int i = 0; args[i] != NULL; i++) {
+  for (int i = 1; args[i] != NULL; i++) {
     printf("%s", args[i]);
 
     if (args[i + 1] != NULL) {
