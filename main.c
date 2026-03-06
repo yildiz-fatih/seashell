@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 char *read_line();
 
@@ -10,6 +11,11 @@ int main(void) {
     char *line = read_line();
     if (line == NULL) {
       break;
+    }
+
+    if (strcmp(line, "exit") == 0) {
+      free(line);
+      exit(0);
     }
 
     // for testing
