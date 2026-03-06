@@ -13,6 +13,7 @@ void handle_exit(char **args);
 void handle_type(char **args);
 void handle_echo(char **args);
 void handle_pwd(char **args);
+void handle_cd(char **args);
 
 char *read_line();
 char **tokenize_line(char *line);
@@ -21,10 +22,8 @@ char *find_executable(char *program_name);
 void run_external(char **args);
 
 Builtin builtins[] = {
-    {"exit", handle_exit},
-    {"type", handle_type},
-    {"echo", handle_echo},
-    {"pwd", handle_pwd},
+    {"exit", handle_exit}, {"type", handle_type}, {"echo", handle_echo},
+    {"pwd", handle_pwd},   {"cd", handle_cd},
 };
 
 int main(void) {
@@ -108,6 +107,19 @@ void handle_pwd(char **args) {
   printf("%s\n", cwd);
 
   free(cwd);
+}
+
+void handle_cd(char **args) {
+  char *dir = args[1];
+
+  if (dir == NULL || strcmp(dir, "~") == 0) {
+    dir = getenv("HOME");
+  }
+
+  int result = chdir(dir);
+  if (result == -1) {
+    printf("cd: %s: No such file or directory\n", dir);
+  }
 }
 
 char *read_line() {
