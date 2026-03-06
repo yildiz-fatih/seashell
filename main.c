@@ -12,6 +12,7 @@ typedef struct {
 void handle_exit(char **args);
 void handle_type(char **args);
 void handle_echo(char **args);
+void handle_pwd(char **args);
 
 char *read_line();
 char **tokenize_line(char *line);
@@ -23,6 +24,7 @@ Builtin builtins[] = {
     {"exit", handle_exit},
     {"type", handle_type},
     {"echo", handle_echo},
+    {"pwd", handle_pwd},
 };
 
 int main(void) {
@@ -95,6 +97,17 @@ void handle_echo(char **args) {
     }
   }
   printf("\n");
+}
+
+void handle_pwd(char **args) {
+  char *cwd = getcwd(NULL, 0);
+  if (cwd == NULL) {
+    return;
+  }
+
+  printf("%s\n", cwd);
+
+  free(cwd);
 }
 
 char *read_line() {
