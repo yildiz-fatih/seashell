@@ -1,8 +1,20 @@
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+typedef struct {
+  char *target_filename;
+  int open_flags;
+  int target_fd;
+} Redirection;
+
+typedef struct {
+  char **args;
+  Redirection redir;
+} Command;
 
 typedef struct {
   char *name;
@@ -19,7 +31,10 @@ char *read_line();
 char **tokenize_line(char *line);
 void free_tokens(char **tokens);
 char *find_executable(char *program_name);
-void run_external(char **args);
+void run_external(char **args, Redirection *redir);
+Command parse_command(char **tokens);
+void free_command(Command *cmd);
+void evaluate_command(Command *cmd);
 
 Builtin builtins[] = {
     {"exit", handle_exit}, {"type", handle_type}, {"echo", handle_echo},
@@ -42,19 +57,11 @@ int main(void) {
       continue; // just prompt again
     }
 
-    int is_builtin = 0;
-    for (int i = 0; i < sizeof(builtins) / sizeof(builtins[0]); i++) {
-      if (strcmp(tokens[0], builtins[i].name) == 0) {
-        builtins[i].handler(tokens);
-        is_builtin = 1;
-        break;
-      }
-    }
+    Command cmd = parse_command(tokens);
 
-    if (!is_builtin) {
-      run_external(tokens);
-    }
+    evaluate_command(&cmd);
 
+    free_command(&cmd);
     free_tokens(tokens);
     free(line);
   }
@@ -259,7 +266,7 @@ char *find_executable(char *program_name) {
   return NULL;
 }
 
-void run_external(char **args) {
+void run_external(char **args, Redirection *redir) {
   char *program_name = args[0];
   if (program_name == NULL) {
     return;
@@ -279,6 +286,12 @@ void run_external(char **args) {
   }
 
   if (pid == 0) { // child process
+    if (redir->target_filename != NULL) {
+      int fd = open(redir->target_filename, redir->open_flags, 0644);
+      dup2(fd, redir->target_fd);
+      close(fd);
+    }
+
     execv(exec_path, args);
     exit(1);
   }
@@ -286,4 +299,93 @@ void run_external(char **args) {
   // parent process
   free(exec_path);
   wait(NULL);
+}
+
+Command parse_command(char **tokens) {
+  Command cmd = {0};
+  int args_cap = 10;
+  int args_count = 0;
+  cmd.args = malloc(args_cap * sizeof(char *));
+
+  for (int i = 0; tokens[i] != NULL; i++) {
+    if (strcmp(tokens[i], ">") == 0 || strcmp(tokens[i], "1>") == 0) {
+      if (tokens[i + 1] != NULL) {
+        cmd.redir.target_fd = STDOUT_FILENO;
+        cmd.redir.target_filename = strdup(tokens[i + 1]);
+        cmd.redir.open_flags = O_WRONLY | O_CREAT | O_TRUNC;
+        break;
+      }
+    } else if (strcmp(tokens[i], "2>") == 0) {
+      if (tokens[i + 1] != NULL) {
+        cmd.redir.target_fd = STDERR_FILENO;
+        cmd.redir.target_filename = strdup(tokens[i + 1]);
+        cmd.redir.open_flags = O_WRONLY | O_CREAT | O_TRUNC;
+        break;
+      }
+    } else if (strcmp(tokens[i], ">>") == 0 || strcmp(tokens[i], "1>>") == 0) {
+      if (tokens[i + 1] != NULL) {
+        cmd.redir.target_fd = STDOUT_FILENO;
+        cmd.redir.target_filename = strdup(tokens[i + 1]);
+        cmd.redir.open_flags = O_WRONLY | O_CREAT | O_APPEND;
+        break;
+      }
+    } else if (strcmp(tokens[i], "2>>") == 0) {
+      if (tokens[i + 1] != NULL) {
+        cmd.redir.target_fd = STDERR_FILENO;
+        cmd.redir.target_filename = strdup(tokens[i + 1]);
+        cmd.redir.open_flags = O_WRONLY | O_CREAT | O_APPEND;
+        break;
+      }
+    } else {
+      if (args_count + 1 >= args_cap) {
+        args_cap *= 2;
+        cmd.args = realloc(cmd.args, args_cap * sizeof(char *));
+      }
+
+      cmd.args[args_count++] = strdup(tokens[i]);
+    }
+  }
+
+  cmd.args[args_count] = NULL; // NULL-terminate the array
+
+  return cmd;
+}
+
+void free_command(Command *cmd) {
+  if (cmd == NULL) {
+    return;
+  }
+
+  for (int i = 0; cmd->args[i] != NULL; i++) {
+    free(cmd->args[i]);
+  }
+  free(cmd->args);
+  free(cmd->redir.target_filename);
+}
+
+void evaluate_command(Command *cmd) {
+  // Check for empty input
+  if (cmd->args == NULL || cmd->args[0] == NULL) {
+    return;
+  }
+
+  for (int i = 0; i < sizeof(builtins) / sizeof(builtins[0]); i++) {
+    if (strcmp(cmd->args[0], builtins[i].name) == 0) {
+      if (cmd->redir.target_filename != NULL) {
+        int copy = dup(cmd->redir.target_fd);
+        int fd = open(cmd->redir.target_filename, cmd->redir.open_flags, 0644);
+        dup2(fd, cmd->redir.target_fd);
+        builtins[i].handler(cmd->args);
+        dup2(copy, cmd->redir.target_fd);
+        close(copy);
+        close(fd);
+      } else {
+        builtins[i].handler(cmd->args);
+      }
+
+      return;
+    }
+  }
+
+  run_external(cmd->args, &cmd->redir);
 }
