@@ -1,12 +1,27 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
+typedef struct {
+  char *name;
+  void (*handler)(char **args);
+} Builtin;
+
+void handle_exit(char **args);
+void handle_type(char **args);
 void handle_echo(char **args);
 
 char *read_line();
 char **tokenize_line(char *line);
 void free_tokens(char **tokens);
+char *find_executable(char *program_name);
+
+Builtin builtins[] = {
+    {"exit", handle_exit},
+    {"type", handle_type},
+    {"echo", handle_echo},
+};
 
 int main(void) {
   while (1) {
@@ -24,13 +39,16 @@ int main(void) {
       continue; // just prompt again
     }
 
-    if (strcmp(tokens[0], "exit") == 0) {
-      free_tokens(tokens);
-      free(line);
-      exit(0);
-    } else if (strcmp(tokens[0], "echo") == 0) {
-      handle_echo(tokens);
-    } else {
+    int is_builtin = 0;
+    for (int i = 0; i < sizeof(builtins) / sizeof(builtins[0]); i++) {
+      if (strcmp(tokens[0], builtins[i].name) == 0) {
+        builtins[i].handler(tokens);
+        is_builtin = 1;
+        break;
+      }
+    }
+
+    if (!is_builtin) {
       printf("%s: command not found\n", tokens[0]);
     }
 
@@ -38,6 +56,32 @@ int main(void) {
     free(line);
   }
   return 0;
+}
+
+void handle_exit(char **args) { exit(0); }
+
+void handle_type(char **args) {
+  char *program_name = args[1];
+  if (program_name == NULL) {
+    return;
+  }
+
+  for (int i = 0; i < sizeof(builtins) / sizeof(builtins[0]); i++) {
+    if (strcmp(program_name, builtins[i].name) == 0) {
+      printf("%s is a shell builtin\n", program_name);
+      return;
+    }
+  }
+
+  char *exec_path = find_executable(program_name);
+  if (exec_path == NULL) {
+    printf("%s: not found\n", program_name);
+    return;
+  }
+
+  printf("%s is %s\n", program_name, exec_path);
+
+  free(exec_path);
 }
 
 void handle_echo(char **args) {
@@ -149,4 +193,41 @@ void free_tokens(char **tokens) {
     free(tokens[i]);
   }
   free(tokens);
+}
+
+char *find_executable(char *program_name) {
+  const char *path_env = getenv("PATH");
+  if (path_env == NULL) {
+    return NULL;
+  }
+  char *path_copy = strdup(path_env);
+  if (path_copy == NULL) {
+    return NULL;
+  }
+
+  char *directory;
+  char *remaining = path_copy;
+  while ((directory = strsep(&remaining, ":")) != NULL) {
+    // Skip empty directories (consecutive colons)
+    if (*directory == '\0') {
+      continue;
+    }
+
+    char *exec_path;
+    if (asprintf(&exec_path, "%s/%s", directory, program_name) == -1) {
+      free(path_copy);
+      return NULL;
+    }
+
+    if (access(exec_path, F_OK | X_OK) == 0) {
+      free(path_copy);
+      return exec_path;
+    }
+
+    free(exec_path);
+  }
+
+  free(path_copy);
+
+  return NULL;
 }
